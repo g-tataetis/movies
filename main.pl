@@ -3,6 +3,49 @@
 use warnings;
 use diagnostics;
 
+sub extract_imdb_movie_genres{
+	my ($rawGenresLineGiven) = @_;
+	if($rawGenresLineGiven =~ /.*href="\/genre\/.*"\s+>.*<\/a>.*/){
+		my $rawGenre;
+		my @rawGenresOfCurrentMovie = split("</span>", $rawGenresLineGiven);
+		foreach $rawGenre (@rawGenresOfCurrentMovie){
+			if($rawGenre =~ /.*href="\/genre\/.*"\s+>(.+)<\/a>.*/){
+				$currentMovieGenres .= $1 . ", ";
+			}
+		}
+		chomp($current_movie_genres);
+		chop($current_movie_genres);
+		return $currentMovieGenres;
+	}
+}
+
+sub extract_imdb_user_votes{
+	my ($lineToCheckForUserVotes, $castMessage) = @_;
+	my $movieUserVotes;
+	if($lineToCheckForUserVotes =~ /.*><span itemprop="ratingCount">(\S+)<\/span> users<\/a>.*/){
+		$movieUserVotes = $1;
+		$movieUserVotes =~ s/,//g;
+		if((defined $castMessage) && ($castMessage == 1)){
+			print "Users that voted: $movieUserVotes\n";
+		}
+		return $movieUserVotes;
+	}
+}
+
+sub extract_imdb_ratings{
+	my ($lineToCheckForRatings, $castMessage) = @_;
+	my $movieRatings;
+	if($lineToCheckForRatings =~ /.*Ratings: <strong><span itemprop="ratingValue">(\S+)<\/span>.*/){
+		$movieRatings = $1;
+		if((defined $castMessage) && ($castMessage == 1)){
+			print "Imdb Rating: $movieRatings\n";
+		}
+		return $movieRatings;
+	}
+}
+
+#======subs============
+
 $movies_folder = "/media/arc/movies";
 
 @movies_all = `ls $movies_folder`;
@@ -11,11 +54,7 @@ foreach $movie_folder (@movies_all){
 	chomp($movie_folder);
 	print "Name to search for: "; chomp($name_to_search_for = <STDIN>);
 	$name_to_search_for =~ s/ /+/g;
-	system("wget -q http://www.imdb.com/find?q=$name_to_search_for\\\&s=tt -O index.html");
-	open IMDBSEARCHRESULT, "<index.html";
-	unlink("index.html");
-	@imdb_search_result = <IMDBSEARCHRESULT>;
-	close(IMDBSEARCHRESULT);
+	@imdb_search_result = `wget -qO- http://www.imdb.com/find?q=$name_to_search_for\\\&s=tt`;
 	foreach $line_of_search_result (@imdb_search_result){
 		if($line_of_search_result =~ /.*<p><b>Popular Titles<\/b>.*/){
 			$popular_titles = $line_of_search_result;
@@ -69,42 +108,23 @@ foreach $movie_folder (@movies_all){
 			$current_title_info = $title_info[$1];
 			$full_movie_directory = $movies_folder . "/" . $movie_folder;
 			$renamed_movie_directory = $movies_folder . "/" . $title_imdb_code[$1];
-#			print "mv -vf \"$full_movie_directory\" \"$renamed_movie_directory\"";
+			system("mv -vf \"$full_movie_directory\" \"$renamed_movie_directory\"");
 			$full_to_visit_link = "http://www.imdb.com/title/tt" . $title_imdb_code[$1];
-			system("wget -q $full_to_visit_link -O movie.html");
-			open IMDBMOVIEPAGE, "<movie.html";
-			@imdb_movie_page = <IMDBMOVIEPAGE>;
-			unlink("movie.html");
-			close(IMDBMOVIEPAGE);
+			@imdb_movie_page = `wget -qO- $full_to_visit_link`;
 			$current_movie_ratings = "";
 			$current_movie_users = "";
 			$current_movie_genres = "";
 			foreach $line_of_imdb_movie_page (@imdb_movie_page){
-				if($line_of_imdb_movie_page =~ /.*Ratings: <strong><span itemprop="ratingValue">(\S+)<\/span>.*/){
-					$current_movie_ratings = $1;
-					print "\t\tRating: $current_movie_ratings\n";
-				}
-				elsif($line_of_imdb_movie_page =~ /.*><span itemprop="ratingCount">(\S+)<\/span> users<\/a>.*/){
-					$current_movie_users = $1;
-					$current_movie_users =~ s/,//g;
-					print "\t\tUsers:  $current_movie_users\n";
-				}
-				elsif($line_of_imdb_movie_page =~ /.*href="\/genre\/.*"\s+>.*<\/a>.*/){
-					@raw_genres_of_current_movie = split("</span>", $line_of_imdb_movie_page);
-					foreach $raw_genre (@raw_genres_of_current_movie){
-						if($raw_genre =~ /.*href="\/genre\/.*"\s+>(.+)<\/a>.*/){
-							$current_movie_genres .= $1 . ", ";
-						}
-					}
-				}
+				$current_movie_ratings .= &extract_imdb_ratings($line_of_imdb_movie_page, 1);
+				$current_movie_users .= &extract_imdb_user_votes($line_of_imdb_movie_page, 1);
+				$current_movie_genres .= &extract_imdb_movie_genres($line_of_imdb_movie_page);
 			}
-			chomp($current_movie_genres);
-			chop($current_movie_genres);
 			$current_movie_score = $current_movie_ratings*$current_movie_users;
 			print "\t\tMovie score: $current_movie_score\n";
 			print "\t\tMovie genres: $current_movie_genres\n";
 			open DATABASE, ">>database";
-			print DATABASE "$current_imdb_code\t\t$current_title_info\t$current_movie_score\t\t$current_movie_ratings\t$current_movie_users\t$current_movie_genres\n";
+			print "Ever seen? "; chomp($ever_seen = <STDIN>);
+			print DATABASE "$ever_seen\t$current_imdb_code\t\t$current_title_info\t$current_movie_score\t\t$current_movie_ratings\t$current_movie_users\t$current_movie_genres\n";
 		}
 		elsif($user_command =~ /^exit/){
 			exit;
